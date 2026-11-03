@@ -164,6 +164,17 @@ export default function SpiceConsolePage() {
     showNotice('✓ JSON 파일로 내보냈습니다.');
   };
 
+  // Export current netlist as .sp file
+  const handleExportSp = () => {
+    if (!netlist.trim()) {
+      showNotice('⚠ 내보낼 넷리스트가 비어 있습니다.');
+      return;
+    }
+    const filename = (saveName.trim() || selectedPresetId || 'spice_netlist').replace(/\s+/g, '_');
+    downloadSpiceFile(filename, netlist);
+    showNotice(`✓ "${filename}.sp" 넷리스트 파일로 내보냈습니다.`);
+  };
+
   // Import netlist from JSON file
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -355,6 +366,15 @@ export default function SpiceConsolePage() {
             <span>💾</span> 로컬 스토리지 회로 저장/불러오기 (JSON)
           </span>
           <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              className="ghost"
+              style={{ fontSize: '0.8rem', padding: '4px 8px', color: 'var(--accent)', fontWeight: 600 }}
+              onClick={handleExportSp}
+              title="현재 편집된 넷리스트를 .sp 파일로 다운로드"
+            >
+              📄 Export Netlist (.sp)
+            </button>
             <button
               type="button"
               className="ghost"

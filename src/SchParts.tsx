@@ -1,13 +1,13 @@
 // Shared schematic primitives for the hand-placed (wired) diagrams.
 export const INK = "var(--fg)";
 
-const RAIL_HI = new Set(["VGH", "ELVDD", "VOBS"]);
+const RAIL_HI = new Set(["VGH", "ELVDD", "VOBS", "VREF"]);
 const RAIL_LO = new Set(["VGL", "ELVSS", "VINT", "GND"]);
 export function netColor(net: string): string {
   if (RAIL_HI.has(net)) return "#dc2626";
   if (RAIL_LO.has(net)) return "#2563eb";
-  if (/^CLK|^GW$|^GC$|^GI$|^EM$|^GO$/.test(net)) return "#0d9488";
-  if (net === "IN" || net === "OUT" || net === "DATA") return "#7c3aed";
+  if (/^CLK|^GW$|^GC$|^GI$|^EM$|^EMB$|^GR$|^GO$/.test(net)) return "#0d9488";
+  if (net === "IN" || net === "OUT" || net === "DATA" || net === "ANODE") return "#7c3aed";
   let h = 0;
   for (const ch of net) h = (h * 31 + ch.charCodeAt(0)) % 360;
   return `hsl(${(h * 7) % 360} 65% 40%)`;

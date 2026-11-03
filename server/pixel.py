@@ -5,7 +5,7 @@ T4 gate init to VINT (oxide N, GI) | T5/T6 emission (P, EM)
 T7 anode init (P, GO) | T8 on-bias to T1 source (P, GO)
 Topology refs: US 11,056,060 B2, US 11,600,229 B2. Not any manufacturer's netlist.
 """
-import copy, os, re, subprocess, time, uuid
+import copy, os, re, shutil, subprocess, time, uuid
 import numpy as np
 
 _trapz = getattr(np, "trapezoid", None) or np.trapz  # numpy < 2 has only trapz
@@ -245,6 +245,7 @@ def run(desc):
     for h in head[1:]:
         v = col[h][keep] * (1e9 if h == "i(vsense)" else 1)
         series["I_OLED_nA" if h == "i(vsense)" else h.upper().replace("V(", "v(")] = np.round(v, 4).tolist()
+    shutil.rmtree(jd, ignore_errors=True)
     _prune_runs()
     return {"ok": True, "job": jid, "elapsed_s": round(time.time() - t0, 2), "warnings": warnings,
             "metrics": met, "vth_check": comp, "comparison": comparison, "series": series,

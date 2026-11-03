@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 
-export interface SchTft { name: string; type: "P" | "N"; G: string; S: string; D: string; W?: number; L?: number }
+export interface SchTft {
+  name: string;
+  type: "P" | "N";
+  G: string;
+  S: string;
+  D: string;
+  W?: number;
+  L?: number;
+  bml?: boolean;
+  bml_node?: string;
+  model_name?: string;
+}
 export interface SchCap { name: string; a: string; b: string; value: string }
 export interface SchDiode { name: string; a: string; k: string; label?: string }
 
@@ -32,34 +43,48 @@ function Label({ x, y, net, anchor }: { x: number; y: number; net: string; ancho
   );
 }
 
-// TFT symbol in a 200x140 cell: gate on the left, source on top, drain at bottom.
-// PMOS has the gate bubble; NMOS has none. Arrow on the source marks polarity.
+// TFT symbol in a 210x140 cell: gate on the left, source on top, drain at bottom.
+// When BML is enabled, draws a bottom-metal back-gate bar on the right with its connected net tag.
 function Tft({ t, x, y }: { t: SchTft; x: number; y: number }) {
-  const gx = x + 70, cx = x + 86, mid = y + 70;
+  const gx = x + 68, cx = x + 84, mid = y + 70;
   const ink = "var(--fg)";
+  const hasBml = Boolean(t.bml);
+  const bmlNet = t.bml_node || "S";
+  const bmlx = cx + 12;
   return (
     <g>
-      <text x={x + 12} y={y + 20} fontSize={13} fontWeight={700} fill={ink}>{t.name}</text>
-      <text x={x + 12} y={y + 34} fontSize={10} fill="var(--muted)">{t.type === "P" ? "PMOS" : "NMOS"}</text>
-      {t.W ? <text x={x + 12} y={y + 128} fontSize={10} fill="var(--muted)">W/L {t.W}/{t.L}</text> : null}
+      <text x={x + 10} y={y + 20} fontSize={13} fontWeight={700} fill={ink}>{t.name}</text>
+      <text x={x + 10} y={y + 34} fontSize={10} fill="var(--muted)">
+        {t.type === "P" ? "PMOS" : "NMOS"}{t.model_name ? ` (${t.model_name})` : ""}
+      </text>
+      {t.W ? <text x={x + 10} y={y + 128} fontSize={10} fill="var(--muted)">W/L {t.W}/{t.L}</text> : null}
       {/* gate */}
-      <line x1={x + 46} y1={mid} x2={t.type === "P" ? gx - 8 : gx} y2={mid} stroke={ink} strokeWidth={1.6} />
+      <line x1={x + 44} y1={mid} x2={t.type === "P" ? gx - 8 : gx} y2={mid} stroke={ink} strokeWidth={1.6} />
       {t.type === "P" && <circle cx={gx - 4} cy={mid} r={4} fill="none" stroke={ink} strokeWidth={1.6} />}
       <line x1={gx} y1={mid - 22} x2={gx} y2={mid + 22} stroke={ink} strokeWidth={2.2} />
       {/* channel */}
       <line x1={cx} y1={mid - 26} x2={cx} y2={mid + 26} stroke={ink} strokeWidth={2.2} />
       {/* source (top) and drain (bottom) */}
-      <polyline points={`${cx},${mid - 18} ${cx + 30},${mid - 18} ${cx + 30},${y + 30}`} fill="none" stroke={ink} strokeWidth={1.6} />
-      <polyline points={`${cx},${mid + 18} ${cx + 30},${mid + 18} ${cx + 30},${y + 112}`} fill="none" stroke={ink} strokeWidth={1.6} />
+      <polyline points={`${cx},${mid - 18} ${cx + 26},${mid - 18} ${cx + 26},${y + 30}`} fill="none" stroke={ink} strokeWidth={1.6} />
+      <polyline points={`${cx},${mid + 18} ${cx + 26},${mid + 18} ${cx + 26},${y + 112}`} fill="none" stroke={ink} strokeWidth={1.6} />
       {t.type === "P"
         ? <polygon points={`${cx + 4},${mid - 18} ${cx + 14},${mid - 23} ${cx + 14},${mid - 13}`} fill={ink} />
         : <polygon points={`${cx + 16},${mid + 18} ${cx + 6},${mid + 13} ${cx + 6},${mid + 23}`} fill={ink} />}
-      <text x={cx + 36} y={mid - 22} fontSize={10} fill="var(--muted)">S</text>
-      <text x={cx + 36} y={mid + 30} fontSize={10} fill="var(--muted)">D</text>
-      <text x={x + 48} y={mid - 6} fontSize={10} fill="var(--muted)">G</text>
-      <Label x={x + 46} y={mid} net={t.G} anchor="end" />
-      <Label x={cx + 30} y={y + 22} net={t.S} anchor="middle" />
-      <Label x={cx + 30} y={y + 120} net={t.D} anchor="middle" />
+      {/* BML back-gate electrode when enabled */}
+      {hasBml && (
+        <g>
+          <line x1={bmlx} y1={mid - 14} x2={bmlx} y2={mid + 14} stroke="#d97706" strokeWidth={2.2} strokeDasharray="3,2" />
+          <line x1={bmlx} y1={mid} x2={bmlx + 36} y2={mid} stroke="#d97706" strokeWidth={1.5} />
+          <text x={bmlx + 14} y={mid - 6} fontSize={9} fontWeight={700} fill="#d97706">BML</text>
+          <Label x={bmlx + 36} y={mid} net={bmlNet} anchor="start" />
+        </g>
+      )}
+      <text x={cx + 31} y={mid - 22} fontSize={10} fill="var(--muted)">S</text>
+      <text x={cx + 31} y={mid + 30} fontSize={10} fill="var(--muted)">D</text>
+      <text x={x + 46} y={mid - 6} fontSize={10} fill="var(--muted)">G</text>
+      <Label x={x + 44} y={mid} net={t.G} anchor="end" />
+      <Label x={cx + 26} y={y + 22} net={t.S} anchor="middle" />
+      <Label x={cx + 26} y={y + 120} net={t.D} anchor="middle" />
     </g>
   );
 }
@@ -89,7 +114,7 @@ function Diode({ d, x, y }: { d: SchDiode; x: number; y: number }) {
       <line x1={cx} y1={y + 30} x2={cx} y2={y + 56} stroke={ink} strokeWidth={1.6} />
       <polygon points={`${cx - 16},${y + 56} ${cx + 16},${y + 56} ${cx},${y + 82}`} fill="none" stroke={ink} strokeWidth={1.8} />
       <line x1={cx - 16} y1={y + 82} x2={cx + 16} y2={y + 82} stroke={ink} strokeWidth={2.4} />
-      {/* light arrows: it is an OLED */}
+      {/* light arrows */}
       <path d={`M${cx + 20},${y + 62} l12,-8 m-5,0 l5,0 l0,5 M${cx + 20},${y + 72} l12,-8 m-5,0 l5,0 l0,5`} stroke={ink} fill="none" strokeWidth={1.2} />
       <line x1={cx} y1={y + 82} x2={cx} y2={y + 110} stroke={ink} strokeWidth={1.6} />
       <Label x={cx} y={y + 22} net={d.a} anchor="middle" />
@@ -110,7 +135,7 @@ export default function Schematic({ tfts, caps, diodes = [], title }: Props) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const CW = 210, CH = 140;
+  const CW = 220, CH = 140;
   const cols = Math.max(1, Math.min(5, Math.floor(w / CW)));
   const items = [
     ...tfts.map((t) => ({ k: "t" + t.name, el: (x: number, y: number) => <Tft t={t} x={x} y={y} /> })),
@@ -118,8 +143,11 @@ export default function Schematic({ tfts, caps, diodes = [], title }: Props) {
     ...diodes.map((d) => ({ k: "d" + d.name, el: (x: number, y: number) => <Diode d={d} x={x} y={y} /> })),
   ];
   const rows = Math.ceil(items.length / cols);
-  const nets = Array.from(new Set([...tfts.flatMap((t) => [t.G, t.S, t.D]), ...caps.flatMap((c) => [c.a, c.b]),
-    ...diodes.flatMap((d) => [d.a, d.k])])).sort();
+  const nets = Array.from(new Set([
+    ...tfts.flatMap((t) => t.bml && t.bml_node ? [t.G, t.S, t.D, t.bml_node] : [t.G, t.S, t.D]),
+    ...caps.flatMap((c) => [c.a, c.b]),
+    ...diodes.flatMap((d) => [d.a, d.k]),
+  ])).sort();
   return (
     <div ref={box} className="sch">
       {title && <div className="hint">{title}</div>}

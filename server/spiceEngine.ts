@@ -37,9 +37,17 @@ export interface SpiceStatus {
 }
 
 const SERVER_DIR = path.resolve(__dirname);
-const RUNS_DIR = path.join(path.dirname(SERVER_DIR), 'runs');
+const BIN_DIR = path.join(SERVER_DIR, 'bin');
+const BUNDLED_NGSPICE = path.join(BIN_DIR, 'ngspice');
+const RUNS_DIR = process.env.GW_RUNS || '/tmp/gw-circuit-runs';
 const OSDI_FILE = path.join(SERVER_DIR, 'ptft_fit.osdi');
-const NGSPICE_BIN = process.env.GW_NGSPICE || (fs.existsSync('/usr/local/bin/ngspice') ? '/usr/local/bin/ngspice' : 'ngspice');
+const NGSPICE_BIN =
+  process.env.GW_NGSPICE ||
+  (fs.existsSync(BUNDLED_NGSPICE)
+    ? BUNDLED_NGSPICE
+    : fs.existsSync('/usr/local/bin/ngspice')
+      ? '/usr/local/bin/ngspice'
+      : 'ngspice');
 
 if (!fs.existsSync(RUNS_DIR)) {
   fs.mkdirSync(RUNS_DIR, { recursive: true });
@@ -81,7 +89,10 @@ export function parseWrdataFile(content: string): SpiceResultData | null {
 export async function getSpiceStatus(): Promise<SpiceStatus> {
   return new Promise((resolve) => {
     try {
-      const proc = spawn(NGSPICE_BIN, ['-v']);
+      const ldPath = [BIN_DIR, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':');
+      const proc = spawn(NGSPICE_BIN, ['-v'], {
+        env: { ...process.env, LD_LIBRARY_PATH: ldPath },
+      });
       let out = '';
       proc.stdout.on('data', (d) => { out += d.toString(); });
       proc.stderr.on('data', (d) => { out += d.toString(); });
@@ -177,10 +188,12 @@ export async function runSpiceNetlist(
     let stderr = '';
     let timedOut = false;
 
+    const ldPath = [BIN_DIR, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':');
     const child = spawn(NGSPICE_BIN, ['-b', 'job.cir'], {
       cwd: jobDir,
       env: {
-        PATH: process.env.PATH || '',
+        PATH: `${BIN_DIR}:${process.env.PATH || ''}`,
+        LD_LIBRARY_PATH: ldPath,
         HOME: jobDir,
         OMP_NUM_THREADS: '1',
       },
@@ -230,8 +243,13 @@ export async function runSpiceNetlist(
 
       const hasError = exitCode !== 0 || combinedLog.includes('Simulation interrupted due to error') || combinedLog.includes('Fatal error:');
 
-      // Schedule background cleanup of old runs
-      setTimeout(() => cleanupOldRuns(), 100);
+      // Clean up temporary job directory immediately
+      try {
+        fs.rmSync(jobDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
+      setTimeout(() => cleanupOldRuns(10), 100);
 
       resolve({
         ok: !hasError,

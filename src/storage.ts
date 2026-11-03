@@ -1,4 +1,4 @@
-import { Circuit, PixelCircuit } from './types';
+import { Circuit, HpdCircuit, PixelCircuit } from './types';
 
 export interface SavedSpiceItem {
   id: string;
@@ -22,9 +22,17 @@ export interface SavedPixelCircuit {
   updatedAt: string;
 }
 
+export interface SavedHpdCircuit {
+  id: string;
+  name: string;
+  circuit: HpdCircuit;
+  updatedAt: string;
+}
+
 const SPICE_STORAGE_KEY = 'gw_spice_netlists_v1';
 const DRIVER_STORAGE_KEY = 'gw_driver_circuits_v1';
 const PIXEL_STORAGE_KEY = 'gw_pixel_circuits_v1';
+const HPD_STORAGE_KEY = 'gw_hpd_circuits_v1';
 
 // ==========================================
 // SPICE Netlist LocalStorage Operations
@@ -198,4 +206,53 @@ export function deletePixelCircuit(id: string): void {
   const list = getSavedPixelCircuits().filter((item) => item.id !== id);
   localStorage.setItem(PIXEL_STORAGE_KEY, JSON.stringify(list));
 }
+
+// ==========================================
+// HPD 6T2C Circuit LocalStorage Operations
+// ==========================================
+
+export function getSavedHpdCircuits(): SavedHpdCircuit[] {
+  try {
+    const raw = localStorage.getItem(HPD_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('[Storage] Error reading HPD circuits:', err);
+    return [];
+  }
+}
+
+export function saveHpdCircuit(name: string, circuit: HpdCircuit): SavedHpdCircuit {
+  const list = getSavedHpdCircuits();
+  const existingIndex = list.findIndex((item) => item.name === name.trim());
+  const now = new Date().toISOString();
+
+  let item: SavedHpdCircuit;
+  if (existingIndex >= 0) {
+    item = {
+      ...list[existingIndex],
+      circuit: structuredClone(circuit),
+      updatedAt: now,
+    };
+    list[existingIndex] = item;
+  } else {
+    item = {
+      id: `hpd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: name.trim() || `HPD화소_${new Date().toLocaleTimeString()}`,
+      circuit: structuredClone(circuit),
+      updatedAt: now,
+    };
+    list.unshift(item);
+  }
+
+  localStorage.setItem(HPD_STORAGE_KEY, JSON.stringify(list));
+  return item;
+}
+
+export function deleteHpdCircuit(id: string): void {
+  const list = getSavedHpdCircuits().filter((item) => item.id !== id);
+  localStorage.setItem(HPD_STORAGE_KEY, JSON.stringify(list));
+}
+
 

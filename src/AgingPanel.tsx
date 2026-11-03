@@ -1,21 +1,42 @@
 import { useState } from "react";
 import { API } from "./api";
-import { AgingResult, Deg } from "./types";
+import { AgingLawType, AgingResult, Deg } from "./types";
 
-const LAW_LABEL: Record<string, string> = {
-  dV_inf: "포화 ΔVth (V)", tau_85_h: "85 °C 시정수 (h)", beta: "β (늘어진 지수)", Ea_eV: "활성화 에너지 (eV)",
-  V_ref: "기준 |Vgs| (V)", gamma: "전압 가속 지수", w_off: "꺼짐 스트레스 비중", k_mu: "Ion 감소 계수",
-  k_ss: "SS 증가 계수", k_ioff: "Ioff 증가 계수",
+const STRETCHED_LABELS: Record<string, string> = {
+  dV_inf: "포화 ΔVth (V)",
+  tau_85_h: "85 °C 시정수 (h)",
+  beta: "β (늘어진 지수)",
+  Ea_eV: "활성화 에너지 (eV)",
+  V_ref: "기준 |Vgs| (V)",
+  gamma: "전압 가속 지수",
+  w_off: "꺼짐 스트레스 비중",
+  k_mu: "Ion 감소 계수",
+  k_ss: "SS 증가 계수",
+  k_ioff: "Ioff 증가 계수",
+};
+
+const POWER_LAW_LABELS: Record<string, string> = {
+  A_pw: "Power Law 진폭 A (V)",
+  n_pw: "시간 지수 n (t^n)",
+  tau_pw_h: "Power Law 기준 시간 τ0 (h)",
+  Ea_eV: "활성화 에너지 (eV)",
+  V_ref: "기준 |Vgs| (V)",
+  gamma: "전압 가속 지수",
+  w_off: "꺼짐 스트레스 비중",
+  k_mu: "Ion 감소 계수",
+  k_ss: "SS 증가 계수",
+  k_ioff: "Ioff 증가 계수",
 };
 
 // High-temperature long-term stress: run the nominal circuit, measure each
 // TFT's gate stress, and turn it into dVth / Ion / Ioff / SS for the table.
 export default function AgingPanel({ kind, desc, onApply, onReset }: {
-  kind: "driver" | "pixel"; desc: object; onApply: (deg: Record<string, Deg>, temp: number) => void; onReset: () => void;
+  kind: "driver" | "pixel" | "hpd"; desc: object; onApply: (deg: Record<string, Deg>, temp: number) => void; onReset: () => void;
 }) {
   const [temp, setTemp] = useState(85);
   const [hours, setHours] = useState(3000);
   const [hz, setHz] = useState(120);
+  const [lawType, setLawType] = useState<AgingLawType>("stretched_exponential");
   const [law, setLaw] = useState<Record<string, number>>({});
   const [res, setRes] = useState<AgingResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,7 +46,7 @@ export default function AgingPanel({ kind, desc, onApply, onReset }: {
     try {
       const r = await fetch(API + "/aging", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, desc, temp_C: temp, hours, frame_hz: hz, law }),
+        body: JSON.stringify({ kind, desc, temp_C: temp, hours, frame_hz: hz, law_type: lawType, law }),
       });
       const j: AgingResult = await r.json();
       setRes(j);
@@ -37,12 +58,21 @@ export default function AgingPanel({ kind, desc, onApply, onReset }: {
     }
   };
 
+  const activeLabels = lawType === "power_law" ? POWER_LAW_LABELS : STRETCHED_LABELS;
+
   return (
     <section className="card">
-      <h2>고온 장기 구동 열화</h2>
-      <p className="hint">정상 회로를 한 번 돌려 TR마다 게이트에 걸린 스트레스(켜진 시간 비율, |Vgs|)를 재고,
-        온도·시간에 따라 ΔVth·Ion·Ioff·SS 변화를 계산합니다. 열화 법칙은 합성 가정이며 아래 고급 설정에서 바꿀 수 있습니다.</p>
+      <h2>고온 장기 구동 열화 (Stretched Exponential / Power Law 선택)</h2>
+      <p className="hint">정상 회로를 ngspice로 한 번 돌려 TR마다 게이트에 걸린 스트레스(켜진 시간 비율, |Vgs|)를 측정하고,
+        선택한 열화 수식(Stretched Exponential 또는 Power Law)에 의거하여 ΔVth·Ion·Ioff·SS 변화를 계산합니다.</p>
       <div className="grid4">
+        <label className="num">
+          <span>열화 수식 (Equation)</span>
+          <select value={lawType} onChange={(e) => setLawType(e.target.value as AgingLawType)}>
+            <option value="stretched_exponential">Stretched Exponential (늘어진 지수식)</option>
+            <option value="power_law">Power Law (멱법칙: A · (t/τ0)^n)</option>
+          </select>
+        </label>
         <label className="num"><span>온도</span><input type="number" value={temp} onChange={(e) => setTemp(+e.target.value)} /><em>°C</em></label>
         <label className="num"><span>구동 시간</span><input type="number" step={500} value={hours} onChange={(e) => setHours(+e.target.value)} /><em>h</em></label>
         {kind === "driver" && (
@@ -50,11 +80,18 @@ export default function AgingPanel({ kind, desc, onApply, onReset }: {
         )}
       </div>
       <details>
-        <summary>고급: 열화 법칙 계수</summary>
-        <p className="hint">ΔVth = 포화ΔVth × (1 − exp(−(t_eff/τ)^β)), t_eff = 시간 × 평균[(|Vgs|/기준)^지수], τ = τ85 × exp(Ea/k·(1/T − 1/358 K)).
-          켜짐 스트레스는 TR을 켜기 어렵게(+), 꺼짐 스트레스는 반대로 비중만큼 움직입니다.</p>
+        <summary>고급: {lawType === "power_law" ? "Power Law (멱법칙)" : "Stretched Exponential (늘어진 지수)"} 계수 설정</summary>
+        {lawType === "power_law" ? (
+          <p className="hint">
+            <b>Power Law 수식:</b> ΔVth = A_pw × (t_eff / (τ0 × AF_T))^n_pw, 여기서 t_eff = 시간 × 평균[(|Vgs|/V_ref)^γ], AF_T = exp(Ea/k·(1/T − 1/358 K)).
+          </p>
+        ) : (
+          <p className="hint">
+            <b>Stretched Exponential 수식:</b> ΔVth = dV_inf × (1 − exp(−(t_eff / τ)^β)), 여기서 t_eff = 시간 × 평균[(|Vgs|/V_ref)^γ], τ = τ85 × exp(Ea/k·(1/T − 1/358 K)).
+          </p>
+        )}
         <div className="grid4">
-          {Object.entries(LAW_LABEL).map(([k, label]) => (
+          {Object.entries(activeLabels).map(([k, label]) => (
             <label key={k} className="num"><span>{label}</span>
               <input type="number" step="any" value={law[k] ?? ""} placeholder="기본값"
                 onChange={(e) => setLaw({ ...law, [k]: parseFloat(e.target.value) })} /></label>
@@ -62,7 +99,9 @@ export default function AgingPanel({ kind, desc, onApply, onReset }: {
         </div>
       </details>
       <div className="runbar">
-        <button className="primary" onClick={go} disabled={busy}>{busy ? "계산 중…" : "열화 계산"}</button>
+        <button className="primary" onClick={go} disabled={busy}>
+          {busy ? "ngspice 스트레스 측정 및 열화 계산 중…" : `열화 계산 (${lawType === "power_law" ? "Power Law" : "Stretched Exp."})`}
+        </button>
         <button className="ghost" onClick={onReset}>열화 지우기 (새 소자로)</button>
       </div>
       {res && !res.ok && <ul className="err">{res.errors?.map((e, i) => <li key={i}>{e}</li>)}</ul>}

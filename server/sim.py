@@ -12,10 +12,10 @@ import numpy as np
 import device
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RUNS = os.path.join(os.path.dirname(HERE), "runs")
+RUNS = os.environ.get("GW_RUNS", "/tmp/gw-circuit-runs")
 OSDI = os.environ.get("GW_OSDI", os.path.join(HERE, "ptft_fit.osdi"))
 NGSPICE = os.environ.get("GW_NGSPICE", "/usr/local/bin/ngspice" if os.path.exists("/usr/local/bin/ngspice") else "ngspice")
-KEEP_RUNS = 400
+KEEP_RUNS = 10
 
 RAILS = {"VGH", "VGL", "CLK1", "CLK2"}
 STAGE_IO = {"IN", "OUT"}
@@ -347,6 +347,7 @@ def run(desc, timeout_s=120):
     series = {"t_us": np.round(tu[keep], 4).tolist()}
     for h, v in cols.items():
         series[h] = np.round(v[keep], 4).tolist()
+    shutil.rmtree(jd, ignore_errors=True)
     _prune_runs()
     return {"ok": True, "job": jid, "elapsed_s": elapsed, "warnings": warnings,
             "timing": {k: round(v, 4) for k, v in t.items()}, "verdict": verdict,

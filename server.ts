@@ -1,80 +1,41 @@
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn, ChildProcess } from 'child_process';
-import http from 'http';
-import { getSpiceStatus, runSpiceNetlist, SPICE_PRESETS } from './server/spiceEngine.js';
+import { getSpiceStatus, runSpiceNetlist, SPICE_PRESETS } from './server/spiceEngine.ts';
+import {
+  DRIVER_PRESETS,
+  PIXEL_PRESET,
+  validateDriver,
+  calcDriverTiming,
+  buildDriverNetlist,
+  runDriverSim,
+  validatePixel,
+  buildPixelNetlist,
+  runPixelSim,
+  estimateAging,
+  startMarginMap,
+  getMarginMap,
+  optimizeParameters,
+  optimizeSignals,
+  runCircuitWizard,
+} from './server/circuitBackend.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
-const PYTHON_PORT = 8767;
-const PYTHON_BASE = `http://127.0.0.1:${PYTHON_PORT}`;
+const PORT = Number(process.env.PORT) || 3000;
 
-let pyProcess: ChildProcess | null = null;
-
-function startPythonBackend() {
-  const serverDir = path.join(__dirname, 'server');
-  const osdiPath = path.join(serverDir, 'ptft_fit.osdi');
-
-  console.log('[Server] Starting Python FastAPI backend on port', PYTHON_PORT);
-  pyProcess = spawn(
-    'python3',
-    ['-m', 'uvicorn', 'app:app', '--host', '127.0.0.1', '--port', String(PYTHON_PORT)],
-    {
-      cwd: serverDir,
-      env: {
-        ...process.env,
-        GW_NGSPICE: process.env.GW_NGSPICE || '/usr/local/bin/ngspice',
-        GW_OSDI: osdiPath,
-      },
-      stdio: ['ignore', 'inherit', 'inherit'],
-    }
-  );
-
-  pyProcess.on('exit', (code, signal) => {
-    console.log(`[Python backend exited with code ${code}, signal ${signal}]`);
-    pyProcess = null;
-  });
-}
-
-function stopPythonBackend() {
-  if (pyProcess) {
-    try {
-      pyProcess.kill('SIGTERM');
-    } catch {
-      // ignore
-    }
-    pyProcess = null;
-  }
-}
-
-process.on('SIGINT', () => {
-  stopPythonBackend();
-  process.exit(0);
-});
-process.on('SIGTERM', () => {
-  stopPythonBackend();
-  process.exit(0);
-});
-process.on('exit', () => {
-  stopPythonBackend();
-});
+let activeSimulations = 0;
 
 async function main() {
-  startPythonBackend();
-
   const app = express();
 
-  // Parse JSON payloads for Express-handled endpoints
   app.use(express.json({ limit: '10mb' }));
 
   // ==========================================
-  // Direct Express.js ngspice Execution Routes
+  // 1. Direct Express.js ngspice Console Routes
   // ==========================================
-
-  // 1. Get ngspice status and capabilities
   app.get(['/api/spice/status', '/circuit/api/spice/status'], async (_req, res) => {
     try {
       const status = await getSpiceStatus();
@@ -84,81 +45,164 @@ async function main() {
     }
   });
 
-  // 2. Get built-in SPICE templates
   app.get(['/api/spice/presets', '/circuit/api/spice/presets'], (_req, res) => {
     res.json(SPICE_PRESETS);
   });
 
-  // 3. Directly run SPICE netlist using ngspice binary
   app.post(['/api/spice/run', '/circuit/api/spice/run'], async (req, res) => {
     try {
-      const { netlist, timeoutMs, autoOsdi } = req.body;
+      const { netlist, timeoutMs, autoOsdi } = req.body || {};
       if (!netlist || typeof netlist !== 'string' || !netlist.trim()) {
         res.status(400).json({ ok: false, error: 'Netlist content is required' });
         return;
       }
-
-      console.log(`[Express ngspice] Running simulation (${netlist.length} bytes)...`);
       const result = await runSpiceNetlist(netlist, { timeoutMs, autoOsdi });
       res.json(result);
     } catch (err: any) {
-      console.error('[Express ngspice Error]', err);
       res.status(500).json({ ok: false, error: err.message });
     }
   });
 
   // ==========================================
-  // Proxy high-level display circuit endpoints
+  // 2. Display Circuit Simulator Routes
   // ==========================================
-  const proxyApiRequest = (req: express.Request, res: express.Response) => {
-    const targetUrl = new URL(req.originalUrl, PYTHON_BASE);
-
-    const headers: Record<string, string> = {};
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (key.toLowerCase() !== 'content-length' && value !== undefined) {
-        headers[key] = Array.isArray(value) ? value.join('; ') : value;
-      }
-    }
-    headers['host'] = `127.0.0.1:${PYTHON_PORT}`;
-
-    // If body was already parsed by express.json, serialize it
-    const bodyData = req.body ? JSON.stringify(req.body) : undefined;
-    if (bodyData) {
-      headers['content-type'] = 'application/json';
-      headers['content-length'] = String(Buffer.byteLength(bodyData));
-    }
-
-    const proxyReq = http.request(
-      targetUrl,
-      {
-        method: req.method,
-        headers,
-      },
-      (proxyRes) => {
-        res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
-        proxyRes.pipe(res);
-      }
-    );
-
-    proxyReq.on('error', (err) => {
-      console.error('[API Proxy Error]', err.message);
-      if (!res.headersSent) {
-        res.status(502).json({ ok: false, errors: ['Backend service unavailable: ' + err.message] });
-      }
+  app.get(['/api/health', '/circuit/api/health'], (_req, res) => {
+    res.json({
+      status: 'ok',
+      busy: activeSimulations > 0,
+      waiting: Math.max(0, activeSimulations - 1),
     });
+  });
 
-    if (bodyData) {
-      proxyReq.write(bodyData);
-      proxyReq.end();
-    } else {
-      req.pipe(proxyReq);
+  app.get(['/api/presets', '/circuit/api/presets'], (_req, res) => {
+    res.json(DRIVER_PRESETS);
+  });
+
+  app.post(['/api/simulate', '/circuit/api/simulate'], async (req, res) => {
+    activeSimulations++;
+    try {
+      const result = await runDriverSim(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, errors: [err.message || 'Simulation error'] });
+    } finally {
+      activeSimulations--;
     }
-  };
+  });
 
-  app.use('/api', proxyApiRequest);
-  app.use('/circuit/api', proxyApiRequest);
+  app.get(['/api/pixel/preset', '/circuit/api/pixel/preset'], (_req, res) => {
+    res.json(PIXEL_PRESET);
+  });
 
-  const isProduction = process.env.NODE_ENV === 'production';
+  app.post(['/api/pixel/simulate', '/circuit/api/pixel/simulate'], async (req, res) => {
+    activeSimulations++;
+    try {
+      const result = await runPixelSim(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, errors: [err.message || 'Pixel simulation error'] });
+    } finally {
+      activeSimulations--;
+    }
+  });
+
+  app.post(['/api/aging', '/circuit/api/aging'], async (req, res) => {
+    activeSimulations++;
+    try {
+      const result = await estimateAging(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, errors: [err.message || 'Aging estimation error'] });
+    } finally {
+      activeSimulations--;
+    }
+  });
+
+  app.post(['/api/map', '/circuit/api/map'], (req, res) => {
+    try {
+      const result = startMarginMap(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, errors: [err.message || 'Margin map error'] });
+    }
+  });
+
+  app.get(['/api/map/:jid', '/circuit/api/map/:jid'], (req, res) => {
+    const result = getMarginMap(req.params.jid);
+    res.json(result);
+  });
+
+  app.post(['/api/netlist', '/circuit/api/netlist'], (req, res) => {
+    try {
+      const payload = req.body || {};
+      const kind = payload.kind || 'driver';
+      const desc = payload.desc || payload;
+      if (kind === 'pixel') {
+        const { errors, n } = validatePixel(desc);
+        if (errors.length > 0) {
+          res.status(400).json({ ok: false, errors });
+          return;
+        }
+        const sp = buildPixelNetlist(n);
+        res.json({ ok: true, netlist: sp, filename: `${desc.name || 'pixel'}.sp` });
+      } else {
+        const { errors, n } = validateDriver(desc);
+        if (errors.length > 0) {
+          res.status(400).json({ ok: false, errors });
+          return;
+        }
+        const t = calcDriverTiming(n);
+        const sp = buildDriverNetlist(n, t);
+        res.json({ ok: true, netlist: sp, filename: `${desc.name || 'gw_circuit'}.sp` });
+      }
+    } catch (err: any) {
+      res.status(500).json({ ok: false, errors: [err.message || 'Netlist export error'] });
+    }
+  });
+
+  app.post(['/api/optimize/params', '/circuit/api/optimize/params'], async (req, res) => {
+    activeSimulations++;
+    try {
+      const result = await optimizeParameters(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, errors: [err.message || 'Parameter optimization error'] });
+    } finally {
+      activeSimulations--;
+    }
+  });
+
+  app.post(['/api/optimize/signals', '/circuit/api/optimize/signals'], async (req, res) => {
+    activeSimulations++;
+    try {
+      const result = await optimizeSignals(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, errors: [err.message || 'Signal optimization error'] });
+    } finally {
+      activeSimulations--;
+    }
+  });
+
+  app.post(['/api/optimize/wizard', '/circuit/api/optimize/wizard'], async (req, res) => {
+    activeSimulations++;
+    try {
+      const result = await runCircuitWizard(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, errors: [err.message || 'Wizard optimization error'] });
+    } finally {
+      activeSimulations--;
+    }
+  });
+
+  // ==========================================
+  // 3. Frontend Serving (Vite in Dev, Static in Prod)
+  // ==========================================
+  const distPath = path.join(__dirname, 'dist');
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    process.env.npm_lifecycle_event === 'start';
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
@@ -167,8 +211,7 @@ async function main() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(__dirname, 'dist');
+  } else if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
