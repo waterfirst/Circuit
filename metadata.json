@@ -1,0 +1,6 @@
+{
+  "name": "디스플레이 회로 시뮬레이터 (GW Circuit Sim)",
+  "description": "OLED 디스플레이 게이트 구동 회로(GIP: GW·EM·GC·GI) 및 8T1C LTPO 화소를 ngspice 및 Verilog-A TFT 모델로 시뮬레이션하고 검증하는 웹 도구",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,40 @@
+// FIT model: simple p-type LTPS TFT compact model used for parameter extraction.
+// Aging law (for the Verilog-A time model): stretched exponential on |Vth| and mobility.
+`include "constants.vams"
+`include "disciplines.vams"
+
+module ptft_fit(d, g, s);
+  inout d, g, s;
+  electrical d, g, s;
+  parameter real W = 4e-6 from (0:inf);
+  parameter real L = 4e-6 from (0:inf);
+  parameter real CI = 3.45e-4 from (0:inf);    // F/m^2
+  parameter real VT0 = 1.2;                     // |Vth| [V], Vth = -VT0
+  parameter real U0 = 80 from (0:inf);          // cm^2/Vs
+  parameter real GAMMA = 0.1 from [0:1);
+  parameter real SS = 0.3 from (0:inf);         // V/dec
+  parameter real LAMBDA = 0.02 from [0:inf);
+  parameter real GOFF = 1e-14 from [0:inf);
+  parameter real POL = 1.0 from [-1:1];         // +1 PMOS (LTPS), -1 NMOS (IGZO)     // S
+  // aging (stretched exponential)
+  parameter real TSTRESS = 0 from [0:inf);      // h
+  parameter real AVT = 0;  parameter real TAUV = 100 from (0:inf); parameter real BETAV = 0.5 from (0:1];
+  parameter real AMU = 0;  parameter real TAUM = 100 from (0:inf); parameter real BETAM = 0.5 from (0:1];
+
+  real vsg, vsd, sgn, vt, n, vth, mu, x, veff, vsde, id;
+  analog begin
+    if (POL * V(s, d) >= 0) begin sgn = 1.0;  vsd = POL * V(s, d); vsg = POL * V(s, g); end
+    else                    begin sgn = -1.0; vsd = POL * V(d, s); vsg = POL * V(d, g); end
+    vt  = $vt(300.15);
+    n   = SS / (vt * ln(10.0));
+    vth = VT0 + AVT * (1.0 - exp(-pow(TSTRESS / TAUV, BETAV)));
+    x   = (vsg - vth) / (n * vt);
+    if (x > 30.0) veff = vsg - vth; else veff = n * vt * ln(1.0 + exp(x));
+    mu   = U0 * 1e-4 * (1.0 - AMU * (1.0 - exp(-pow(TSTRESS / TAUM, BETAM)))) * pow(veff, GAMMA);
+    vsde = vsd / pow(1.0 + pow(vsd / (veff + 1e-12), 4.0), 0.25);
+    id   = CI * W / L * mu * (veff * vsde - 0.5 * vsde * vsde) * (1.0 + LAMBDA * vsd) + GOFF * vsd;
+    I(s, d) <+ POL * sgn * id;
+    I(g, s) <+ 0.5 * CI * W * L * ddt(V(g, s));
+    I(g, d) <+ 0.5 * CI * W * L * ddt(V(g, d));
+  end
+endmodule
