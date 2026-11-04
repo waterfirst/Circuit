@@ -302,7 +302,7 @@ export default function DriverPage() {
     }
   };
 
-  const runOptimizer = async (endpoint: "params" | "signals" | "wizard", label: string) => {
+  const runOptimizer = async (endpoint: "params" | "signals" | "timing" | "wizard", label: string) => {
     if (!c) return;
     setOptBusy(label);
     setNetErr("");
@@ -519,6 +519,28 @@ export default function DriverPage() {
             <Num label="FLM 앞당김" unit="µs" value={c.flm_lead_us ?? 0} onChange={(x) => set("flm_lead_us", x)} />
             <Num label="FLM 늘림" unit="µs" value={c.flm_lag_us ?? 0} onChange={(x) => set("flm_lag_us", x)} />
             <Num label="홀드 허용 처짐" unit="V" value={c.hold_drop ?? 1} onChange={(x) => set("hold_drop", x)} />
+          </div>
+
+          <div style={{ marginTop: 12, padding: 10, background: "var(--lane)", borderRadius: 8, border: "1px solid var(--line)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+              <b>⚡ 외부 PCB 클럭 공급 옵션 (External PCB Clock Source for CLK1/CLK2)</b>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={!!c.external_pcb_clock}
+                  onChange={(e) => set("external_pcb_clock", e.target.checked)}
+                />
+                외부 PCB 드라이버 활성화
+              </label>
+            </div>
+            {c.external_pcb_clock && (
+              <div className="grid4" style={{ marginTop: 8 }}>
+                <Num label="외부 High (VGH)" unit="V" value={c.ext_vhigh ?? c.VGH} onChange={(x) => set("ext_vhigh", x)} />
+                <Num label="외부 Low (VGL)" unit="V" value={c.ext_vlow ?? c.VGL} onChange={(x) => set("ext_vlow", x)} />
+                <Num label="슬루율 (Tr/Tf)" unit="ns" step={5} value={c.ext_slew_ns ?? 20} onChange={(x) => set("ext_slew_ns", x)} />
+                <Num label="PCB 소스 저항" unit="Ω" step={5} value={c.ext_rs_ohm ?? 15} onChange={(x) => set("ext_rs_ohm", x)} />
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 12, padding: 10, background: "var(--lane)", borderRadius: 8, border: "1px solid var(--line)" }}>
@@ -769,6 +791,15 @@ export default function DriverPage() {
         </button>
         <button
           type="button"
+          onClick={() => runOptimizer("timing", "Timing Optimizer")}
+          disabled={busy || !!optBusy}
+          style={{ background: "#fff7ed", borderColor: "#c2410c", color: "#c2410c", fontWeight: 600 }}
+          title="클럭 듀티비(pw_frac), 단간 타이밍 오프셋, QB 노드 전하 유지 및 T2/T5 풀업 네트워크 턴오프 최적화"
+        >
+          {optBusy === "Timing Optimizer" ? "⏳ Timing 최적화 중…" : "⏱ Timing Optimizer (QB 안정성 · 듀티비)"}
+        </button>
+        <button
+          type="button"
           onClick={() => runOptimizer("wizard", "Wizard")}
           disabled={busy || !!optBusy}
           style={{ background: "#faf5ff", borderColor: "#7c3aed", color: "#6d28d9", fontWeight: 600 }}
@@ -824,6 +855,35 @@ export default function DriverPage() {
               </table>
             </div>
           </section>
+
+          {res.analysis && (
+            <section className="card" style={{ background: "var(--lane)", borderLeft: "4px solid var(--accent)" }}>
+              <h2>📊 CMOS_GB / 구동 회로 신호 & 노드 안정성 분석</h2>
+              <div className="grid4" style={{ marginTop: 10 }}>
+                <div style={{ background: "var(--card)", padding: 10, borderRadius: 6, border: "1px solid var(--line)" }}>
+                  <div className="hint">출력 OUT 상승 시간 (tr)</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--accent)" }}>{res.analysis.rise_time_us} µs</div>
+                </div>
+                <div style={{ background: "var(--card)", padding: 10, borderRadius: 6, border: "1px solid var(--line)" }}>
+                  <div className="hint">출력 OUT 하강 시간 (tf)</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--accent)" }}>{res.analysis.fall_time_us} µs</div>
+                </div>
+                <div style={{ background: "var(--card)", padding: 10, borderRadius: 6, border: "1px solid var(--line)" }}>
+                  <div className="hint">QB 노드 전압 범위</div>
+                  <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{res.analysis.qb_stability.min_V}V ~ {res.analysis.qb_stability.max_V}V</div>
+                </div>
+                <div style={{ background: "var(--card)", padding: 10, borderRadius: 6, border: "1px solid var(--line)" }}>
+                  <div className="hint">QB 노드 리플 / 안정성</div>
+                  <div style={{ fontSize: "1.1rem", fontWeight: 700, color: res.analysis.qb_stability.stable ? "var(--good)" : "var(--bad)" }}>
+                    ΔV {res.analysis.qb_stability.ripple_V}V ({res.analysis.qb_stability.stable ? "✓ 안정" : "⚠ 주의"})
+                  </div>
+                </div>
+              </div>
+              <p className="sub" style={{ marginTop: 8 }}>
+                분석 결과: OUT 1단 로우 레벨 및 2단 이후 전파 상태를 검증했습니다. 펄스 왜곡이나 2단 이후 신호 누락이 발생할 경우 <b>Wizard</b>나 <b>Parameter Optimize</b>를 실행하여 W/L 및 T8 풀업 소자를 최적화할 수 있습니다.
+              </p>
+            </section>
+          )}
 
           <section className="card">
             <div className="row wrapline">

@@ -1,11 +1,10 @@
 import { useState } from "react";
 import DriverPage from "./DriverPage";
 import PixelPage from "./PixelPage";
-import HpdPage from "./HpdPage";
 import SpiceConsolePage from "./SpiceConsolePage";
 
-type Tab = "driver" | "pixel" | "hpd" | "hpd2" | "spice";
-const TABS: Tab[] = ["driver", "pixel", "hpd", "hpd2", "spice"];
+type Tab = "driver" | "pixel" | "spice";
+const TABS: Tab[] = ["driver", "pixel", "spice"];
 
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => TABS.find((t) => location.hash === "#" + t) ?? "driver");
@@ -21,16 +20,12 @@ export default function App() {
         <nav className="tabs">
           <button className={tab === "driver" ? "on" : ""} onClick={() => go("driver")}>구동 회로 (GW·EM·GC·GI)</button>
           <button className={tab === "pixel" ? "on" : ""} onClick={() => go("pixel")}>8T1C LTPO 화소</button>
-          <button className={tab === "hpd" ? "on" : ""} onClick={() => go("hpd")}>HPD 6T 초기</button>
-          <button className={tab === "hpd2" ? "on" : ""} onClick={() => go("hpd2")}>HPD 6T 개선</button>
           <button className={tab === "spice" ? "on" : ""} onClick={() => go("spice")}>⚡ ngspice 콘솔</button>
         </nav>
       </header>
       {/* keep all mounted so inputs survive tab switches */}
       <div hidden={tab !== "driver"}><DriverPage /></div>
       <div hidden={tab !== "pixel"}><PixelPage /></div>
-      <div hidden={tab !== "hpd"}><HpdPage improved={false} /></div>
-      <div hidden={tab !== "hpd2"}><HpdPage improved /></div>
       <div hidden={tab !== "spice"}><SpiceConsolePage /></div>
       <footer className="hint">교육·검토용 도구. 회로 출처는 각 예제에 적었고, 소자 크기·용량은 합성 가정입니다.</footer>
     </div>

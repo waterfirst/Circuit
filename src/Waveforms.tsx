@@ -16,7 +16,8 @@ interface Props {
 // Stacked waveforms on one shared time axis. Drag horizontally to zoom,
 // double-click to reset.
 export default function Waveforms({ t, rows, vmin, vmax }: Props) {
-  const full: [number, number] = [t[0] ?? 0, t[t.length - 1] ?? 1];
+  const safeT = Array.isArray(t) && t.length > 0 ? t : [0, 1];
+  const full: [number, number] = [safeT[0] ?? 0, safeT[safeT.length - 1] ?? 1];
   const [range, setRange] = useState<[number, number]>(full);
   const [drag, setDrag] = useState<[number, number] | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -32,33 +33,45 @@ export default function Waveforms({ t, rows, vmin, vmax }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  const W = boxW, narrow = W < 600;
+  const W = Number.isFinite(boxW) ? boxW : 1000, narrow = W < 600;
   const LBL = narrow ? 52 : 70, ROW = narrow ? 34 : 46, GAP = 6, AX = 26;
-  const H = rows.length * (ROW + GAP) + AX;
+  const H = (rows?.length || 1) * (ROW + GAP) + AX;
   const [t0, t1] = range[1] > range[0] ? range : full;
-  const x = (v: number) => LBL + ((v - t0) / (t1 - t0)) * (W - LBL - 8);
+  const tSpan = t1 > t0 ? t1 - t0 : 1;
+  const x = (v: number) => {
+    const val = LBL + ((v - t0) / tSpan) * (W - LBL - 8);
+    return Number.isFinite(val) ? val : LBL;
+  };
 
   const paths = useMemo(() => {
     const idx: number[] = [];
-    for (let i = 0; i < t.length; i++) if (t[i] >= t0 && t[i] <= t1) idx.push(i);
+    for (let i = 0; i < safeT.length; i++) if (safeT[i] >= t0 && safeT[i] <= t1) idx.push(i);
     const step = Math.max(1, Math.floor(idx.length / 1500));
-    return rows.map((r, k) => {
+    return (rows || []).map((r, k) => {
       const top = k * (ROW + GAP);
       const [lo, hi] = r.range ?? [vmin, vmax];
-      const y = (v: number) => top + ROW - ((v - lo) / (hi - lo || 1)) * ROW;
+      const rng = hi > lo ? hi - lo : 1;
+      const y = (v: number) => {
+        const val = top + ROW - ((v - lo) / rng) * ROW;
+        return Number.isFinite(val) ? val : top + ROW / 2;
+      };
       let d = "";
       for (let j = 0; j < idx.length; j += step) {
         const i = idx[j];
-        d += (j === 0 ? "M" : "L") + x(t[i]).toFixed(1) + "," + y(r.data[i]).toFixed(1);
+        const tx = x(safeT[i]);
+        const ty = y(r?.data?.[i] ?? 0);
+        if (Number.isFinite(tx) && Number.isFinite(ty)) {
+          d += (d === "" ? "M" : "L") + tx.toFixed(1) + "," + ty.toFixed(1);
+        }
       }
       return { d, top, zero: y(0), lo, hi };
     });
-  }, [t, rows, t0, t1, vmin, vmax, W, LBL, ROW]);
+  }, [safeT, rows, t0, t1, vmin, vmax, W, LBL, ROW]);
 
   const ticks = useMemo(() => {
-    const span = t1 - t0;
+    const span = t1 > t0 ? t1 - t0 : 1;
     const raw = span / (narrow ? 4 : 8);
-    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const mag = Math.pow(10, Math.floor(Math.log10(Math.max(1e-6, raw))));
     const st = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? raw;
     const out: number[] = [];
     for (let v = Math.ceil(t0 / st) * st; v <= t1; v += st) out.push(+v.toFixed(6));

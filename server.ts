@@ -18,6 +18,7 @@ import {
   getMarginMap,
   optimizeParameters,
   optimizeSignals,
+  optimizeTiming,
   runCircuitWizard,
 } from './server/circuitBackend.ts';
 
@@ -179,6 +180,18 @@ async function main() {
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ ok: false, errors: [err.message || 'Signal optimization error'] });
+    } finally {
+      activeSimulations--;
+    }
+  });
+
+  app.post(['/api/optimize/timing', '/circuit/api/optimize/timing'], async (req, res) => {
+    activeSimulations++;
+    try {
+      const result = await optimizeTiming(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, errors: [err.message || 'Timing optimization error'] });
     } finally {
       activeSimulations--;
     }

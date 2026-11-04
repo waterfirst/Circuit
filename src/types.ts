@@ -33,6 +33,12 @@ export interface Circuit {
   VGH: number; VGL: number; freq_kHz: number; stages: number; frames: number;
   hold_us: number; clock_mode: "continuous" | "burst";
   output?: "low_pulse" | "high_pulse"; start_width_H?: number; start_lead_H?: number;
+  pw_frac?: number; clk_offset_us?: number;
+  external_pcb_clock?: boolean;
+  ext_vhigh?: number;
+  ext_vlow?: number;
+  ext_slew_ns?: number;
+  ext_rs_ohm?: number;
   VT0?: number; U0?: number;
   models?: Record<"P" | "N", { VT0: number; U0: number; SS?: number; GOFF?: number }>;
   custom_models?: CustomTftModel[];
@@ -53,6 +59,11 @@ export interface SimResult {
   netlist?: string; internal?: string[];
   timing?: Record<string, number>;
   verdict?: { pass: boolean; problems: string[]; stages: StageVerdict[]; output: string };
+  analysis?: {
+    rise_time_us: number;
+    fall_time_us: number;
+    qb_stability: { min_V: number; max_V: number; avg_V: number; ripple_V: number; stable: boolean };
+  };
   series?: Record<string, number[]>;
   rails?: { VGH: number; VGL: number };
 }
